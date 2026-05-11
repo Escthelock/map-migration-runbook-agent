@@ -80,7 +80,19 @@ cd map-migration-runbook-agent/presentation-agent
 pip install -r requirements.txt
 ```
 
-### Step 2: Preprocess Customer Data
+### Step 2: Validate Customer Data
+
+Before generating documents, validate the CSV quality:
+
+```bash
+python3 validate.py \
+  --app-csv ../sample-data/health_app.csv \
+  --infra-csv ../sample-data/health_infra.csv
+```
+
+The validator checks for missing criticality ratings, tech stacks without version numbers, duplicate IDs, orphaned servers, and EOL technologies. It outputs a quality score (0–100) with a clear READY / ACCEPTABLE / NOT READY verdict.
+
+### Step 3: Preprocess Customer Data
 
 The preprocessor converts raw CSVs into structured context that the AI agent can reason over:
 
@@ -129,6 +141,17 @@ python3 presentation_agent.py --type phase_status --phase mobilize --context-fil
 ### Step 4: Review and Deliver
 
 The partner reviews the generated document, makes any customer-specific adjustments, and delivers. Regeneration takes seconds if data changes.
+
+You can also specify model and region via CLI flags for different environments:
+
+```bash
+python3 presentation_agent.py \
+  --type executive_summary \
+  --context-file context.md \
+  --model us.anthropic.claude-sonnet-4-20250514-v1:0 \
+  --region us-east-1 \
+  --output summary.md
+```
 
 ## Worked Example: Healthcare Migration
 

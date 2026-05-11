@@ -45,7 +45,7 @@ Application and infrastructure **metadata** from the preprocessed context file i
 
 ## Q: Where does the data reside?
 
-Data remains in the AWS region where Bedrock is invoked (e.g., `us-west-2`). It does not leave that region during processing.
+Data remains in the AWS region where Bedrock is invoked. You control this via the `--region` CLI flag or `AWS_REGION` environment variable (default: `us-west-2`). Data does not leave that region during processing.
 
 ---
 
