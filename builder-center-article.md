@@ -1,257 +1,226 @@
-# Accelerating AWS MAP Migrations with AI-Powered Runbook Generation
-
-## Using Generative AI to Automate Partner Delivery for the AWS Migration Acceleration Program
-
----
+# How I Built an AI Agent That Generates AWS MAP Migration Deliverables in 30 Seconds
 
 **Tags:** migration, MAP, generative-ai, strands-agents, modernization, bedrock, partner
 
-**Level:** 300 — Advanced
-
-**Services:** Amazon Bedrock, AWS Migration Hub, AWS Application Discovery Service
-
 ---
 
-## Introduction
+Every AWS Migration Acceleration Program (MAP) engagement produces the same set of documents: portfolio assessments, wave plans, executive summaries, GO/NO-GO decision packs, cutover runbooks, and MAP milestone reports. For a 20-application healthcare migration I was working on, the documentation alone was tracking toward 3–4 weeks of consultant effort across three phases.
 
-Delivering an AWS Migration Acceleration Program (MAP) engagement requires partners to produce dozens of structured documents — portfolio assessments, wave plans, cutover runbooks, executive summaries, GO/NO-GO decision packs, and MAP milestone reports. For a typical 20-application migration, this documentation effort can consume 2–4 weeks of consultant time per phase.
+I built an AI agent that generates these documents from raw CSV data in under 30 seconds. Here's how it works, what I learned, and how you can use it.
 
-This article demonstrates how to use Generative AI (Amazon Bedrock + Strands Agents SDK) to automate the generation of customer-ready migration deliverables directly from raw inventory data. The approach reduces document creation from weeks to minutes while maintaining MAP methodology alignment.
+## The Problem: Documentation Bottleneck
 
-**Full source code, runbooks, and sample data:** [github.com/Escthelock/map-migration-runbook-agent](https://github.com/Escthelock/map-migration-runbook-agent)
+MAP engagements follow a predictable structure — Assess, Mobilize, Migrate & Modernize. Each phase requires specific deliverables with consistent formatting, data-driven content, and MAP methodology alignment. The work is:
 
-## The Problem
+- **Repetitive** — same document types for every customer
+- **Data-dependent** — content comes from portfolio inventories and infrastructure data
+- **Iterative** — scope changes mean regenerating documents multiple times
+- **Time-consuming** — 2–3 days per executive summary, 1–2 weeks per phase runbook
 
-Partners executing MAP engagements face a repeatable challenge:
+The insight: if the structure is consistent and the content is derived from data, an AI agent can do the heavy lifting.
 
-1. **Data collection** — Gather application portfolios, infrastructure inventories, and dependency maps
-2. **Analysis** — Classify applications (6Rs), score readiness (MRA), plan waves
-3. **Documentation** — Produce phase-specific runbooks, executive presentations, and decision packs
-4. **Iteration** — Regenerate documents as scope changes or new data arrives
+## The Solution: A Two-Stage Pipeline
 
-Steps 3 and 4 are highly repetitive and follow consistent templates. They're ideal candidates for AI automation.
-
-## Solution Architecture
+I built a pipeline with two components:
 
 ```
-┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────────┐
-│  Customer CSVs  │────▶│ Preprocessor │────▶│  Presentation   │────▶│  Customer-Ready  │
-│  (App + Infra)  │     │ (preprocess) │     │     Agent       │     │   Documents      │
-└─────────────────┘     └──────────────┘     └────────┬────────┘     └──────────────────┘
-                                                      │
-                                               ┌──────▼──────┐
-                                               │   Amazon    │
-                                               │   Bedrock   │
-                                               │ (Nova Pro)  │
-                                               └─────────────┘
+Customer CSVs → Preprocessor → Structured Context → AI Agent → Customer-Ready Document
 ```
 
-**Components:**
+**Stage 1: Preprocessor** — A Python script that parses application portfolio and infrastructure CSVs, extracts key metrics (criticality distribution, 6Rs classification, technology landscape, EOL risks, resource totals), and outputs a structured markdown context file.
 
-- **Preprocessor** — Python script that parses application and infrastructure CSVs into structured markdown context
-- **Presentation Agent** — Strands Agents SDK agent with specialised prompts for each document type
-- **Prompt Library** — Customisable system prompts defining output structure per document type
-- **Amazon Bedrock** — Foundation model inference (Amazon Nova Pro or Claude)
+**Stage 2: Presentation Agent** — A Strands Agents SDK agent with document-type-specific system prompts that takes the context and generates a formatted deliverable. Each document type has its own prompt defining the exact section structure, tone, and audience.
 
-## What It Produces
+The agent runs on Amazon Bedrock (Amazon Nova Pro or Claude), keeping all data within AWS infrastructure.
 
-| Document Type | Audience | Generated From |
-|---------------|----------|---------------|
-| Executive Summary | C-suite stakeholders | Portfolio data + MRA scores |
-| Phase Status Report | Steering committee | Current progress + metrics |
-| GO/NO-GO Decision Pack | Executive decision-makers | Phase criteria + risk assessment |
-| MAP Milestone Report | AWS Partner Development Manager | Spend tracking + compliance |
+## What It Generates
 
-Additionally, the repository includes complete migration runbooks covering all three MAP phases:
+I built four document types that cover the most common partner-to-customer deliverables:
 
-- **Phase 1: Assess** — Portfolio discovery, MRA, 6Rs classification, wave planning
-- **Phase 2: Mobilize** — Landing zone, tooling, pilot migration, operating model
-- **Phase 3: Migrate & Modernize** — Wave execution, cutover procedures, modernization roadmap
+| Document | Audience | What It Contains |
+|----------|----------|-----------------|
+| Executive Summary | C-suite | Situation, findings table, programme overview, recommendation, next steps |
+| Phase Status Report | Steering committee | RAG status, progress table, risks, metrics, next period plan |
+| GO/NO-GO Decision Pack | Decision-makers | Criteria assessment (mandatory + recommended), risk matrix, recommendation with conditions |
+| MAP Milestone Report | AWS PDM | Cumulative spend tracking, $50K prediction, compliance checklist |
 
-Plus supporting artefacts: training plan, ROI report, ARR model, AWS pricing guide, and customer onboarding checklist.
+Each generates in 20–40 seconds and produces structured markdown with tables, bullet points, and clear section headings — ready to paste into a slide deck or deliver as-is.
 
-## Implementation
+## Building the Agent
 
-### Step 1: Clone the Repository
+### The Prompt Library
+
+The key to consistent, high-quality output is the system prompt. Each document type has a dedicated prompt that enforces:
+
+- Exact section headings (the agent must use them verbatim)
+- Output format rules (tables for metrics, bullets for recommendations)
+- Data-only content ("Use only data present in the context — never fabricate")
+- Audience-appropriate tone
+
+For example, the GO/NO-GO prompt specifies:
+
+```
+Be objective — present facts, not opinions
+Clearly separate mandatory criteria (must-have) from recommended (should-have)
+Use checkmarks for met criteria, crosses for unmet
+Provide a clear recommendation with rationale
+```
+
+This means the agent produces a consistent structure every time, regardless of the customer data fed in.
+
+### The Preprocessor
+
+Raw CSVs vary wildly between customers — different column names, formats, delimiters. The preprocessor handles this with fuzzy column matching:
+
+```python
+def find_col(row, candidates):
+    for c in candidates:
+        for key in row.keys():
+            if c.lower() in key.lower():
+                return key
+    return None
+```
+
+It looks for "Criticality" or "SLA_Tier" or "Priority" — whatever the customer used. It also auto-detects EOL technologies by scanning tech stack fields for patterns like "java 8", "cobol", ".net 4.6", flagging them as risk signals.
+
+### Data Validation
+
+Before generating documents, I added a validation step that catches data quality issues:
 
 ```bash
-git clone https://github.com/Escthelock/map-migration-runbook-agent.git
-cd map-migration-runbook-agent/presentation-agent
-pip install -r requirements.txt
+python3 validate.py --app-csv portfolio.csv --infra-csv servers.csv
 ```
 
-### Step 2: Validate Customer Data
+Output:
+```
+QUALITY SCORE: 95/100  ✅ READY — proceed with document generation
 
-Before generating documents, validate the CSV quality:
+🟡 MEDIUM
+   [Technology Stack] Tech stack missing version numbers
+     Affected: 29 apps
 
-```bash
-python3 validate.py \
-  --app-csv ../sample-data/health_app.csv \
-  --infra-csv ../sample-data/health_infra.csv
+ℹ️ INFO
+   [EOL Detection] End-of-life technologies detected: vb6
+     Affected: 1 apps
 ```
 
-The validator checks for missing criticality ratings, tech stacks without version numbers, duplicate IDs, orphaned servers, and EOL technologies. It outputs a quality score (0–100) with a clear READY / ACCEPTABLE / NOT READY verdict.
+This prevents garbage-in/garbage-out — the biggest risk with AI-generated documents. If criticality ratings are missing, the wave plan will be wrong. If tech stacks lack version numbers, EOL detection fails. The validator catches these before they become problems in customer-facing documents.
 
-### Step 3: Preprocess Customer Data
+### Error Handling
 
-The preprocessor converts raw CSVs into structured context that the AI agent can reason over:
+Production use means handling real-world failures gracefully:
 
-```bash
-python3 preprocess.py \
-  --app-csv ../sample-data/health_app.csv \
-  --infra-csv ../sample-data/health_infra.csv \
-  --scope ../sample-data/scope.txt \
-  --customer "AnyCompany" \
-  --output context.md
+```python
+try:
+    result = agent(user_message)
+except Exception as e:
+    if "AccessDeniedException" in str(e):
+        print("Error: Access denied. Ensure bedrock:InvokeModel permission is granted.")
+    elif "ThrottlingException" in str(e):
+        print("Error: Rate limit exceeded. Wait and retry.")
 ```
 
-It automatically extracts:
-- Criticality distribution
-- 6Rs classification (if present)
-- Technology landscape and EOL risk signals
-- Infrastructure resource totals
-- Wave plan structure
-
-### Step 3: Generate Documents
-
-```bash
-python3 presentation_agent.py \
-  --type executive_summary \
-  --context-file context.md \
-  --customer "AnyCompany" \
-  --output executive_summary.md
-```
-
-Available document types:
-
-```bash
-# Executive summary for C-suite
-python3 presentation_agent.py --type executive_summary --context-file context.md --output summary.md
-
-# GO/NO-GO decision pack
-python3 presentation_agent.py --type go_nogo --phase assess --context-file context.md --output decision.md
-
-# MAP milestone tracking
-python3 presentation_agent.py --type map_milestone --context-file context.md --output milestone.md
-
-# Phase status report
-python3 presentation_agent.py --type phase_status --phase mobilize --context-file context.md --output status.md
-```
-
-### Step 4: Review and Deliver
-
-The partner reviews the generated document, makes any customer-specific adjustments, and delivers. Regeneration takes seconds if data changes.
-
-You can also specify model and region via CLI flags for different environments:
-
-```bash
-python3 presentation_agent.py \
-  --type executive_summary \
-  --context-file context.md \
-  --model us.anthropic.claude-sonnet-4-20250514-v1:0 \
-  --region us-east-1 \
-  --output summary.md
-```
+The agent also accepts `--model` and `--region` CLI flags so partners in different regions don't need to edit source code.
 
 ## Worked Example: Healthcare Migration
 
-Using a sample healthcare organisation (20 applications, 800TB storage, HIPAA compliance):
+I tested this with a realistic healthcare scenario: 20 applications (7 Critical/Tier-1, including an EHR system with 12+ dependencies), 20 VMware servers, 800TB+ storage, HIPAA compliance requirements, and 5 legacy/EOL applications including a COBOL claims processing system.
 
-**Input:** Application portfolio CSV + infrastructure inventory CSV + scope document
+**Input:** Three files — `health_app.csv`, `health_infra.csv`, `scope.txt`
 
-**Output (Executive Summary excerpt):**
-
-> AnyCompany is currently operating with a mix of legacy and modern applications, including five end-of-life applications that require immediate modernisation. The organisation faces challenges related to healthcare compliance, data sovereignty, and the need for scalable infrastructure to support growing clinical workloads.
-
-> | Area | Finding | Impact | Recommendation |
-> |------|---------|--------|----------------|
-> | Application Portfolio | 20 apps: 7 Critical, 8 High, 5 Medium | EOL risk | Prioritise critical apps first |
-> | Legacy Systems | 5 apps on Java 8, COBOL, ASP.NET 4.8 | Security vulnerabilities | Modernise to current standards |
-> | Scalability | Fixed capacity for clinical workloads | Cannot handle peaks | Implement auto-scaling |
-> | Cost | VMware licensing + hardware refresh due | $2.2M CapEx exposure | Migrate to pay-as-you-go |
+**Command:**
+```bash
+python3 preprocess.py --app-csv health_app.csv --infra-csv health_infra.csv --scope scope.txt --customer "AnyCompany" --output context.md
+python3 presentation_agent.py --type go_nogo --phase assess --context-file context.md --output decision.md
+```
 
 **Output (GO/NO-GO excerpt):**
 
-The agent correctly identified all mandatory criteria as met, flagged 3 recommended criteria below threshold (People & Process 2.8, Platform 2.5, Migration Experience 2.0), and recommended **CONDITIONAL GO** with specific remediation conditions and timelines.
+The agent correctly identified all 8 mandatory criteria as met (portfolio complete, MRA submitted, business case approved, MAP funding confirmed), flagged 3 recommended criteria below threshold (People & Process 2.8/5.0, Platform & Architecture 2.5/5.0, Migration Experience 2.0/5.0), and recommended **CONDITIONAL GO** with four specific remediation conditions:
 
-## Repository Contents
+1. Training programme launched within 2 weeks
+2. AWS Solutions Architect engaged for landing zone review
+3. Pilot migration must succeed before Wave 1 production cutover
+4. CCoE established with defined RACI within 3 weeks
 
-```
-map-migration-runbook-agent/
-├── presentation-agent/          # AI agent code
-│   ├── presentation_agent.py    # Main CLI agent
-│   ├── preprocess.py            # CSV → structured context
-│   ├── run_examples.py          # Sample invocations
-│   └── prompt_library/          # Customisable prompts
-├── runbooks/                    # Complete MAP-aligned runbooks
-│   ├── Complete_Programme_Overview.md
-│   ├── Phase1_Assess_Runbook.md
-│   ├── Phase2_Mobilize_Runbook.md
-│   ├── Phase3_Migrate_Modernize_Runbook.md
-│   ├── Training_Plan.md
-│   ├── Customer_Onboarding_Checklist.md
-│   ├── ARR_Calculation.md
-│   ├── ROI_Report_CSuite.md
-│   └── AWS_Pricing_Calculator_Guide.md
-├── sample-data/                 # Healthcare example data
-└── LICENSE                      # MIT-0
-```
+This is exactly what a senior consultant would produce — but it took 30 seconds instead of a day.
 
-Browse the full repository: [github.com/Escthelock/map-migration-runbook-agent](https://github.com/Escthelock/map-migration-runbook-agent)
+## Security Considerations
 
-## Extending the Approach
+Customer metadata (application names, tech stacks, criticality ratings, server specs) is sent to Amazon Bedrock for inference. Key security properties:
 
-The prompt library is fully customisable. Partners can:
+- **No training on customer data** — Bedrock does not use inputs/outputs to train models
+- **No persistence** — data is not stored after inference
+- **No third-party sharing** — data stays within AWS, not sent to model providers
+- **Encryption in transit** — TLS 1.2+
+- **Region control** — data stays in the region you specify (`--region` flag)
+- **HIPAA eligible** — Bedrock is covered under AWS BAA
 
-- **Add document types** — Wave runbooks, risk registers, training plans, cost comparisons
-- **Customise branding** — Adjust tone, terminology, section structure per partner methodology
-- **Chain agents** — Feed discovery agent output into strategy agent into presentation agent
-- **Add live data** — Pull AWS Cost Explorer data for real-time MAP milestone tracking
-- **Multi-context input** — Combine multiple data sources for cross-phase reporting
+The agent sends metadata only — not patient data, credentials, or PII. The preprocessor controls exactly what enters the context file, and partners should review it before running the agent.
 
-## MAP Alignment
+For additional hardening: use a VPC endpoint for Bedrock (traffic never hits the public internet), scope IAM to `bedrock:InvokeModel` on the specific model ARN, and disable invocation logging if prompt content is sensitive.
 
-The solution maps directly to MAP phases:
+## Beyond Document Generation
 
-| MAP Phase | Agent Outputs |
-|-----------|--------------|
-| Assess | Portfolio assessment, MRA report, business case, 6Rs classification |
-| Mobilize | Landing zone design, pilot report, wave plans, GO/NO-GO pack |
-| Migrate & Modernize | Wave status reports, cutover runbooks, MAP milestone tracking |
+I also built complete MAP-aligned runbooks covering all three phases:
+
+- **Phase 1: Assess** — Portfolio discovery methodology, MRA scoring, 6Rs classification, wave planning, GO/NO-GO criteria
+- **Phase 2: Mobilize** — Landing zone design (8-account structure), security baseline, migration tooling, pilot execution, training plan
+- **Phase 3: Migrate & Modernize** — Wave-by-wave execution plans, cutover templates with rollback procedures, EHR-specific detailed cutover (minute-by-minute), COBOL modernisation approach, post-migration optimisation, decommissioning
+
+Plus supporting artefacts: a 37-certification training plan spanning all phases, ROI report (285% over 5 years), ARR calculation for partner revenue modelling, AWS Pricing Calculator configuration guide, and a customer onboarding checklist with recommended discovery tools by maturity level.
 
 ## Results
 
-For the AnyCompany healthcare engagement (20 applications, 14-month programme):
+| Metric | Manual | AI-Assisted | Improvement |
+|--------|--------|-------------|-------------|
+| Executive summary | 2–3 days | 30 seconds | 99% |
+| GO/NO-GO pack | 1–2 days | 30 seconds | 99% |
+| Phase status report | 4–6 hours | 30 seconds | 99% |
+| Full runbook set (3 phases) | 3–4 weeks | 2–3 hours (review) | 90% |
+| Iteration on scope change | 1–2 days | 30 seconds | 99% |
 
-| Metric | Manual Approach | AI-Assisted | Improvement |
-|--------|----------------|-------------|-------------|
-| Executive summary creation | 2–3 days | 30 seconds | 99% faster |
-| GO/NO-GO pack | 1–2 days | 30 seconds | 99% faster |
-| Phase status report | 4–6 hours | 30 seconds | 99% faster |
-| Full runbook set (3 phases) | 3–4 weeks | 2–3 hours (review) | 90% faster |
-| Iteration on changes | 1–2 days | 30 seconds | 99% faster |
+The 2–3 hours for the full runbook set is review time — the generation itself takes minutes. The real value is iteration speed: when a customer adds 5 applications to scope mid-engagement, regenerating all documents takes seconds instead of days.
 
-## Prerequisites
+## How to Use It
 
-- AWS account with Amazon Bedrock access (Amazon Nova Pro or Claude Sonnet)
-- Python 3.11+
-- `strands-agents` package
-- Customer data in CSV format (application portfolio + infrastructure inventory)
+The complete solution is open source:
 
-## Get Started
+**Repository:** [github.com/Escthelock/map-migration-runbook-agent](https://github.com/Escthelock/map-migration-runbook-agent)
 
 ```bash
 git clone https://github.com/Escthelock/map-migration-runbook-agent.git
 cd map-migration-runbook-agent/presentation-agent
 pip install -r requirements.txt
-python3 run_examples.py --example all
+
+# Validate data quality
+python3 validate.py --app-csv ../sample-data/health_app.csv --infra-csv ../sample-data/health_infra.csv
+
+# Generate context from CSVs
+python3 preprocess.py --app-csv ../sample-data/health_app.csv --infra-csv ../sample-data/health_infra.csv --scope ../sample-data/scope.txt --customer "AnyCompany" --output context.md
+
+# Generate documents
+python3 presentation_agent.py --type executive_summary --context-file context.md --output summary.md
 ```
+
+**Prerequisites:** Python 3.11+, AWS account with Bedrock access (Nova Pro or Claude), `strands-agents` package.
+
+The prompt library is fully customisable — edit `prompt_library/presentation_prompts.py` to match your partner methodology, add new document types, or adjust the output structure. CSV templates are included for customer onboarding.
+
+## What I'd Build Next
+
+The natural extensions are:
+
+1. **Live AWS integration** — Pull Cost Explorer spend and Migration Hub status as agent tools for real-time status reports
+2. **Multi-agent pipeline** — Chain Discovery → 6Rs → Wave Planning → Presentation agents so CSVs produce the full deliverable set in one command
+3. **Web UI** — FastAPI + React frontend for partners who prefer clicking over CLI
+4. **RAG over runbooks** — Index all documentation into Bedrock Knowledge Bases for conversational Q&A ("What's the rollback plan for the EHR cutover?")
 
 ## Conclusion
 
-By combining structured data collection with AI-powered document generation, partners can dramatically reduce the documentation overhead of MAP engagements while maintaining quality and consistency. The approach frees consultants to focus on what matters — architecture decisions, stakeholder alignment, and hands-on migration execution — rather than formatting documents.
+The documentation overhead of MAP engagements is a solved problem. With structured prompts, a data preprocessor, and Amazon Bedrock, partners can generate customer-ready deliverables in seconds — freeing consultants to focus on architecture decisions, stakeholder alignment, and hands-on migration execution.
 
-The complete solution is open source and ready to use: [github.com/Escthelock/map-migration-runbook-agent](https://github.com/Escthelock/map-migration-runbook-agent)
+The code is ready to use: [github.com/Escthelock/map-migration-runbook-agent](https://github.com/Escthelock/map-migration-runbook-agent)
 
 ---
 
